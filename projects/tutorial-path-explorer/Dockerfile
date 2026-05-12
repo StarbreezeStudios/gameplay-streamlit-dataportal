@@ -17,13 +17,13 @@ COPY projects/tutorial-path-explorer/app.py ./
 COPY projects/tutorial-path-explorer/pages/ ./pages/
 COPY projects/tutorial-path-explorer/.streamlit/ ./.streamlit/
 
-# Streamlit listens on 8505 — see CONVENTIONS.md for the Helsinki port allocation.
-EXPOSE 8505
+# Streamlit listens on 8510 — see CONVENTIONS.md for the Helsinki port allocation.
+EXPOSE 8510
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8505/_stcore/health || exit 1
+    CMD curl -f http://localhost:8510/_stcore/health || exit 1
 
 ENTRYPOINT ["streamlit", "run", "app.py", \
-    "--server.port=8505", \
+    "--server.port=8510", \
     "--server.headless=true", \
     "--server.address=0.0.0.0"]

@@ -41,8 +41,11 @@ Helsinki internal server. **Always check this table before deploying a new proje
 | 8501 | budget tracker | pre-existing |
 | 8502 | revenue-target | pre-existing |
 | 8503 | community-dashboard | pre-existing |
-| 8505 | tutorial-path-explorer | STX-1125 (8504 already claimed on Helsinki by another service) |
-| 8506+ | _available_ | |
+| 8504 | _claimed by another service on Helsinki — see Jenkins build log_ | (probe via ss/netstat) |
+| 8505 | _claimed by another service on Helsinki — see Jenkins build log_ | (probe via ss/netstat) |
+| 8506-8509 | _likely also claimed — verify before allocating_ | |
+| 8510 | tutorial-path-explorer | STX-1125 |
+| 8511+ | _available_ | |
 | 3030 | Metabase | not a project here |
 
 ## Imports — `shared/`

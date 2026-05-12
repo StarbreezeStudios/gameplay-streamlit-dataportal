@@ -4,7 +4,7 @@
 // the changed project (e.g. with `changeset` filters per `projects/<name>/**`).
 //
 // Build context = monorepo root so the `shared/` package is included.
-// UI: http://helsinki:8505
+// UI: http://helsinki:8510
 
 pipeline {
     agent { label ('helsinki') }
@@ -103,6 +103,12 @@ EOL
                     # `context: ../..` resolves correctly to the stack root.
                     cd "${STACK_DIR}/${PROJECT_DIR}"
 
+                    echo "=== Ports currently bound on Helsinki (8500-8599 range) ==="
+                    ss -tln 2>/dev/null | awk 'NR==1 || /:85[0-9][0-9]/' || true
+                    echo "=== Docker containers publishing 85xx ports ==="
+                    docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}' | grep -E '85[0-9]{2}' || echo "  (none from docker)"
+                    echo "==="
+
                     echo "Stopping any existing container with the same name (in case compose lost track)..."
                     docker rm -f tutorial-path-explorer 2>/dev/null || true
 
@@ -114,7 +120,7 @@ EOL
                     echo "Waiting for service to start..."
                     sleep 15
 
-                    curl -s --retry 10 --retry-delay 5 http://localhost:8505/_stcore/health > /dev/null \
+                    curl -s --retry 10 --retry-delay 5 http://localhost:8510/_stcore/health > /dev/null \
                         && echo "Streamlit is up." \
                         || echo "Streamlit not responding yet (may still be initializing)."
                 '''
@@ -128,7 +134,7 @@ EOL
                     docker compose -f "${STACK_DIR}/${PROJECT_DIR}/docker-compose.yaml" ps
 
                     echo ""
-                    echo "Tutorial Path Explorer:  http://helsinki:8505"
+                    echo "Tutorial Path Explorer:  http://helsinki:8510"
                 '''
             }
         }

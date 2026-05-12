@@ -22,7 +22,7 @@ Monorepo for self-hosted Streamlit apps that sit on top of the Starbreeze data p
 
 | Project | Status | Port | Owner | Jira |
 |---|---|---|---|---|
-| `tutorial-path-explorer` | local-dev verified | 8505 | Irene Hjorth | [STX-1125](https://starbreeze.atlassian.net/browse/STX-1125) |
+| `tutorial-path-explorer` | local-dev verified | 8510 | Irene Hjorth | [STX-1125](https://starbreeze.atlassian.net/browse/STX-1125) |
 
 ## Quick start (any project)
 
