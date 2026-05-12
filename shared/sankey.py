@@ -22,7 +22,12 @@ def _display_label(label: str) -> str:
         "GAME_LAUNCHED": "launch",
         "LOGIN_OK":      "login ✓",
         "LOGIN_FAIL":    "login ✗",
-        "LOBBY_JOINED":  "lobby",
+        "LOBBY_JOINED":  "lobby",            # legacy label (pre-LOBBY-split cohorts)
+        "LOBBY_solo":    "lobby · solo",
+        "LOBBY_2":       "lobby · 2",
+        "LOBBY_3":       "lobby · 3",
+        "LOBBY_4":       "lobby · 4 ⨯",       # full crew
+        "LOBBY_other":   "lobby · ?",
         "SESSION_END":   "quit",
         "<end>":         "—",
     }
@@ -65,7 +70,12 @@ def _default_color(label: str) -> str:
         return "#95a5a6"
     if label.startswith("PARTY_"):             return "#8e44ad"
     if label.startswith("MATCHMAKING_"):       return "#16a085"
-    if label == "LOBBY_JOINED":                return "#f39c12"
+    if label == "LOBBY_JOINED":                return "#f39c12"  # legacy single-node
+    if label == "LOBBY_solo":                  return "#fde3a7"  # palest — alone
+    if label == "LOBBY_2":                     return "#f9c270"
+    if label == "LOBBY_3":                     return "#f39c12"
+    if label == "LOBBY_4":                     return "#d35400"  # darkest — full crew
+    if label == "LOBBY_other":                 return "#bdc3c7"
     if label.startswith("HEIST_START"):        return "#d35400"
     if label == "HEIST_END_success":           return "#2ecc71"
     if label == "HEIST_END_fail":              return "#e74c3c"
