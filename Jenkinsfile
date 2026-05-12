@@ -85,9 +85,7 @@ SNOWFLAKE_USER=$SF_USER
 SNOWFLAKE_ACCOUNT=RE15009-STARBREEZE
 SNOWFLAKE_WAREHOUSE=JENKINS_PROD
 SNOWFLAKE_DATABASE=PAYDAY3_PROD
-# No SNOWFLAKE_ROLE: the Jenkins user (JENKINS_PROD) does not have SYSADMIN.
-# Letting Snowflake pick the user's default role is the right thing for
-# Streamlit read-only consumption of dbt-managed tables.
+SNOWFLAKE_ROLE=SYSADMIN
 SNOWFLAKE_KEY_DIR=./keys
 EOL
                     chmod 600 "$ENV_FILE"
