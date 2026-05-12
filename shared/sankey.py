@@ -149,6 +149,50 @@ def build_sankey(
         t = node(int(r.FROM_IDX) + 1, r.TO_LABEL)
         src.append(s); tgt.append(t); val.append(int(r.N_USERS))
 
+    # Iteratively prune orphan nodes: any node at step > root that has no
+    # visible inbound flow. They appear when the min_users filter hides the
+    # link that would have fed them, leaving a "source-only" node disconnected
+    # from the funnel above it. (Root-level nodes are exempt — they are the
+    # starting points and have no upstream by definition. `<end>` terminal
+    # nodes are also kept because they only ever appear as targets.)
+    if node_keys:
+        min_step = min(i for (i, _) in node_keys)
+        while True:
+            has_inbound = set(tgt)
+            orphan_idxs = {
+                i for i, (step, _) in enumerate(node_keys)
+                if step > min_step and i not in has_inbound
+            }
+            if not orphan_idxs:
+                break
+            keep = [k for k, s in enumerate(src) if s not in orphan_idxs]
+            src = [src[k] for k in keep]
+            tgt = [tgt[k] for k in keep]
+            val = [val[k] for k in keep]
+
+        # Drop now-unreferenced nodes and reindex.
+        referenced = set(src) | set(tgt)
+        if len(referenced) < len(node_keys):
+            old_to_new: dict[int, int] = {}
+            new_node_keys: list[tuple[int, str]] = []
+            for old_idx, key in enumerate(node_keys):
+                if old_idx in referenced:
+                    old_to_new[old_idx] = len(new_node_keys)
+                    new_node_keys.append(key)
+            node_keys = new_node_keys
+            src = [old_to_new[i] for i in src]
+            tgt = [old_to_new[i] for i in tgt]
+
+    if not node_keys:
+        fig = go.Figure()
+        fig.update_layout(
+            title=title or "No data",
+            annotations=[dict(text="No links match current filters after orphan pruning.",
+                              showarrow=False, x=0.5, y=0.5, xref="paper", yref="paper")],
+            height=height,
+        )
+        return fig
+
     inbound  = {i: 0 for i in range(len(node_keys))}
     outbound = {i: 0 for i in range(len(node_keys))}
     for s, t, v in zip(src, tgt, val):
