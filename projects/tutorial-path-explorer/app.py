@@ -100,13 +100,9 @@ if cohorts:
     st.session_state["countries"] = selected_countries
 
 st.sidebar.divider()
-st.session_state["min_users"] = st.sidebar.slider(
-    "Min players per link", 10, 1000, 80, step=10,
-    help="Links carrying fewer players than this are hidden — keeps the Sankey readable.",
-)
-st.session_state["max_step"] = st.sidebar.slider(
-    "Steps to show", 3, 15, 10,
-    help="Truncate after this step index. Each step = N-th event/screen in the session.",
+st.sidebar.caption(
+    "Sankey-shape controls (min link size, step depth) live on each page "
+    "since the two views have different sensible defaults."
 )
 
 # ---------- landing copy --------------------------------------------------

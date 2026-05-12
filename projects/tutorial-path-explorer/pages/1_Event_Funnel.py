@@ -20,8 +20,21 @@ st.title("Event Funnel — first-session journey")
 cohort = st.session_state.get("cohort_month")
 platforms  = st.session_state.get("platforms", [])
 countries  = st.session_state.get("countries", [])
-min_users  = int(st.session_state.get("min_users", 80))
-max_step   = int(st.session_state.get("max_step", 10))
+
+# Page-local Sankey-shape controls. Defaults tuned for the event funnel —
+# ~30 events per session, so 10 steps captures the loop nicely.
+st.sidebar.divider()
+st.sidebar.caption("**Event Funnel controls**")
+min_users  = st.sidebar.slider(
+    "Min players per link", 10, 1000, 80, step=10,
+    help="Links carrying fewer players than this are hidden.",
+    key="event_funnel_min_users",
+)
+max_step   = st.sidebar.slider(
+    "Steps to show", 3, 15, 10,
+    help="Truncate after this step index. Each step = N-th event in the session.",
+    key="event_funnel_max_step",
+)
 
 if cohort is None:
     st.warning("Pick a cohort month in the sidebar first.")

@@ -22,8 +22,22 @@ st.caption("Source: `PAYDAY3_PROD.DBT_ANALYTICS.FCT_NEW_PLAYER_UI_SCREEN_FLOW` "
 cohort = st.session_state.get("cohort_month")
 platforms = st.session_state.get("platforms", [])
 countries = st.session_state.get("countries", [])
-min_users = int(st.session_state.get("min_users", 80))
-max_step  = int(st.session_state.get("max_step", 10))
+
+# Page-local Sankey-shape controls. Defaults tuned for the UI screen flow —
+# ~20 screens per session and higher label cardinality than the event funnel,
+# so 7 steps + a slightly higher min_users cutoff keeps it readable.
+st.sidebar.divider()
+st.sidebar.caption("**UI Screen Flow controls**")
+min_users = st.sidebar.slider(
+    "Min players per link", 10, 2000, 80, step=10,
+    help="Links carrying fewer players than this are hidden.",
+    key="ui_flow_min_users",
+)
+max_step  = st.sidebar.slider(
+    "Screens to show", 3, 12, 7,
+    help="Truncate after this screen index. Each step = N-th UI screen in the session.",
+    key="ui_flow_max_step",
+)
 
 if cohort is None:
     st.warning("Pick a cohort month in the sidebar first.")
