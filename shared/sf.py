@@ -83,20 +83,26 @@ def _get_snowflake_creds() -> dict:
 
 @st.cache_resource(ttl=1800)
 def _cached_snowflake_connection():
+    """Connect to Snowflake; raises on failure so a failed result is NEVER cached.
+
+    Why: `st.cache_resource` stores whatever the function returns. If we returned
+    `None` on connect failure, the next 30 min of requests would hit the cached
+    None and the UI would stay broken even after the underlying issue (missing
+    role grant, expired key, etc.) is fixed. Raising means the cache never
+    populates on failure and the next request re-attempts the connect.
+    """
     import snowflake.connector
     creds = _get_snowflake_creds()
     if not creds:
-        return None
-    try:
-        return snowflake.connector.connect(**creds)
-    except Exception as e:
-        st.error(f"Snowflake connection failed: {e}")
-        return None
+        raise RuntimeError("Snowflake credentials unavailable")
+    return snowflake.connector.connect(**creds)
 
 
 def get_snowflake_connection():
-    conn = _cached_snowflake_connection()
-    if conn is None:
+    try:
+        conn = _cached_snowflake_connection()
+    except Exception as e:
+        st.error(f"Snowflake connection failed: {e}")
         return None
     try:
         cur = conn.cursor()
@@ -105,7 +111,11 @@ def get_snowflake_connection():
         return conn
     except Exception:
         _cached_snowflake_connection.clear()
-        return _cached_snowflake_connection()
+        try:
+            return _cached_snowflake_connection()
+        except Exception as e:
+            st.error(f"Snowflake reconnect failed: {e}")
+            return None
 
 
 @st.cache_data(ttl=900, show_spinner=False)
