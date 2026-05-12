@@ -18,6 +18,7 @@ def _default_color(label: str) -> str:
     if label == "LOGIN_OK":                    return "#27ae60"
     if label == "LOGIN_FAIL":                  return "#c0392b"
     if label.startswith("TUTORIAL_"):
+        if label.endswith("_completed"):       return "#3498db"  # neutral: combat walkthrough
         if label.endswith("_success"):         return "#3498db"
         if label.endswith("_fail"):            return "#e67e22"
         return "#95a5a6"

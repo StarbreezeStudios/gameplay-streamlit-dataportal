@@ -78,13 +78,21 @@ dropped = all_users - kept_users
 # Bucket HEIST_START_* tail into HEIST_START_other to keep the Sankey readable
 TOP_HEISTS = {"SnGBB", "BranchBank", "SnGFO", "JewelryStore", "ONE", "FirstPlayable", "Bebe"}
 
+# Combat tutorial has ~96% Success / ~4% Fail in raw telemetry — there's no
+# real fail condition, the "Success" result fires whenever the player finishes
+# the scripted walkthrough. Collapse to `_completed` so the Sankey doesn't
+# imply combat is a skill checkpoint. CrowdControl / Detection / Social keep
+# the success/fail distinction because they have genuine fail conditions
+# (each splits ~50/50 in the data).
 def collapse(lbl: str) -> str:
-    if not lbl.startswith("HEIST_START_"):
-        return lbl
-    name = lbl[len("HEIST_START_"):]
-    if name in TOP_HEISTS or name.startswith("BranchBank"):
-        return f"HEIST_START_{name}"
-    return "HEIST_START_other"
+    if lbl.startswith("HEIST_START_"):
+        name = lbl[len("HEIST_START_"):]
+        if name in TOP_HEISTS or name.startswith("BranchBank"):
+            return f"HEIST_START_{name}"
+        return "HEIST_START_other"
+    if lbl in ("TUTORIAL_combat_success", "TUTORIAL_combat_fail"):
+        return "TUTORIAL_combat_completed"
+    return lbl
 
 events["LABEL"] = events["EVENT_LABEL"].map(collapse)
 
@@ -108,6 +116,22 @@ title = (f"<b>Event Funnel · {cohort.strftime('%Y-%m')} cohort · n={n_players:
 
 fig = build_sankey(links, min_users=min_users, max_step=max_step, title=title, height=900)
 st.plotly_chart(fig, use_container_width=True)
+
+with st.expander("ℹ️ How to read the tutorial labels"):
+    st.markdown(
+        """
+The four tutorial heists differ in whether they have a real fail condition:
+
+| Tutorial | Success rate (Apr 2026) | Read |
+|---|---|---|
+| Combat | ~96% | Effectively no fail condition — `Success` fires on completion of the scripted walkthrough. Shown here as **`TUTORIAL_combat_completed`**. |
+| CrowdControl | ~48% | Real pass/fail. Split on success/fail. |
+| Detection | ~39% | Real pass/fail (hardest — players average 2.6 attempts). |
+| Social | ~50% | Real pass/fail. |
+
+So `TUTORIAL_combat_completed → SESSION_END` reads as "finished the combat walkthrough then quit" — the friction is the quit, not the success/fail. For the other three, the success/fail split is genuinely meaningful.
+        """
+    )
 
 with st.expander("Top transitions per step"):
     top = (links.sort_values(["FROM_IDX", "N_USERS"], ascending=[True, False])
