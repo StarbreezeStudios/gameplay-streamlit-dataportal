@@ -9,6 +9,47 @@ import pandas as pd
 import plotly.graph_objects as go
 
 
+def _display_label(label: str) -> str:
+    """Compact, human-readable form of a STX-1125 event label.
+
+    The Sankey columns already encode the step ordinal, so we drop the `[N]`
+    prefix entirely. We also strip the verbose family prefixes (`TUTORIAL_`,
+    `HEIST_START_`, …) and replace common outcomes with glyphs so labels are
+    short enough to render without overlap. Hover still surfaces the full
+    original label for clarity.
+    """
+    fixed = {
+        "GAME_LAUNCHED": "launch",
+        "LOGIN_OK":      "login ✓",
+        "LOGIN_FAIL":    "login ✗",
+        "LOBBY_JOINED":  "lobby",
+        "SESSION_END":   "quit",
+        "<end>":         "—",
+    }
+    if label in fixed:
+        return fixed[label]
+    if label.startswith("TUTORIAL_"):
+        rest = label[len("TUTORIAL_"):]
+        if "_" in rest:
+            name, outcome = rest.rsplit("_", 1)
+            mark = {"success": "✓", "fail": "✗", "unknown": "?",
+                    "disconnect": "↯", "completed": "•"}.get(outcome, outcome)
+            return f"{name} {mark}"
+        return rest
+    if label.startswith("PARTY_"):
+        return "party·" + label[len("PARTY_"):]
+    if label.startswith("MATCHMAKING_"):
+        return "match·" + label[len("MATCHMAKING_"):]
+    if label.startswith("HEIST_START_"):
+        return "▶ " + label[len("HEIST_START_"):]
+    if label.startswith("HEIST_END_"):
+        outcome = label[len("HEIST_END_"):]
+        mark = {"success": "✓", "fail": "✗", "dropout": "…",
+                "disconnect": "↯"}.get(outcome, outcome)
+        return f"end {mark}"
+    return label
+
+
 def _default_color(label: str) -> str:
     """Sensible default coloring based on label prefix."""
     L = label.lower()
@@ -105,20 +146,26 @@ def build_sankey(
 
     n_cols = max(i for (i, _) in node_keys) + 1
     x_per_col = [(i + 0.5) / (n_cols + 1) for i in range(n_cols + 1)]
-    node_x     = [x_per_col[i] for (i, _) in node_keys]
-    node_label = [f"[{i}] {l}" for (i, l) in node_keys]
-    node_color = [color_fn(l) for (_i, l) in node_keys]
+    node_x       = [x_per_col[i] for (i, _) in node_keys]
+    node_label   = [_display_label(l) for (_i, l) in node_keys]
+    node_full    = [l for (_i, l) in node_keys]              # original (for hover)
+    node_step    = [i for (i, _) in node_keys]
+    node_color   = [color_fn(l) for (_i, l) in node_keys]
 
     fig = go.Figure(go.Sankey(
         arrangement="snap",
         node=dict(
             label=node_label,
             color=node_color,
-            pad=10,
-            thickness=14,
+            pad=14,
+            thickness=18,
             x=node_x,
-            customdata=[[inbound[i], outbound[i]] for i in range(len(node_keys))],
-            hovertemplate="<b>%{label}</b><br>in: %{customdata[0]:,}<br>out: %{customdata[1]:,}<extra></extra>",
+            customdata=[[node_step[i], node_full[i], inbound[i], outbound[i]]
+                        for i in range(len(node_keys))],
+            hovertemplate=("<b>%{customdata[1]}</b>"
+                           "<br>step %{customdata[0]}"
+                           "<br>in: %{customdata[2]:,}"
+                           "<br>out: %{customdata[3]:,}<extra></extra>"),
         ),
         link=dict(
             source=src, target=tgt, value=val,
@@ -128,7 +175,7 @@ def build_sankey(
     ))
     fig.update_layout(
         title=title,
-        font=dict(size=11),
+        font=dict(size=14, family="Inter, system-ui, sans-serif"),
         height=height,
         margin=dict(l=10, r=10, t=80, b=10),
         paper_bgcolor="white",

@@ -75,26 +75,11 @@ events = events.merge(launched, on=["USER_ID", "SESSION_ID"], how="inner")
 kept_users = launched.shape[0]
 dropped = all_users - kept_users
 
-# Bucket HEIST_START_* tail into HEIST_START_other to keep the Sankey readable
-TOP_HEISTS = {"SnGBB", "BranchBank", "SnGFO", "JewelryStore", "ONE", "FirstPlayable", "Bebe"}
-
-# Combat tutorial has ~96% Success / ~4% Fail in raw telemetry — there's no
-# real fail condition, the "Success" result fires whenever the player finishes
-# the scripted walkthrough. Collapse to `_completed` so the Sankey doesn't
-# imply combat is a skill checkpoint. CrowdControl / Detection / Social keep
-# the success/fail distinction because they have genuine fail conditions
-# (each splits ~50/50 in the data).
-def collapse(lbl: str) -> str:
-    if lbl.startswith("HEIST_START_"):
-        name = lbl[len("HEIST_START_"):]
-        if name in TOP_HEISTS or name.startswith("BranchBank"):
-            return f"HEIST_START_{name}"
-        return "HEIST_START_other"
-    if lbl in ("TUTORIAL_combat_success", "TUTORIAL_combat_fail"):
-        return "TUTORIAL_combat_completed"
-    return lbl
-
-events["LABEL"] = events["EVENT_LABEL"].map(collapse)
+# Pass labels through as-is. Each distinct heist gets its own node so we
+# can see exactly which heist players move into after the tutorial. The
+# `min_users` slider hides links carrying fewer than N players, which is
+# how visual density is kept reasonable rather than by relabeling.
+events["LABEL"] = events["EVENT_LABEL"]
 
 # Build (FROM_IDX, FROM_LABEL, TO_LABEL, N_USERS) link table
 events_sorted = events.sort_values(["USER_ID", "SESSION_ID", "STEP_IDX"]).copy()
