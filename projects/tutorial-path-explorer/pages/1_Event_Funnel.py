@@ -64,6 +64,17 @@ if events.empty:
     st.info("No events match the current filters.")
     st.stop()
 
+# Anchor every journey at GAME_LAUNCHED so the Sankey reads as a single funnel.
+# Drops sessions whose step 1 is something else (LOGIN_OK alone, SESSION_END, etc.) —
+# usually telemetry gaps where the launch event didn't land but heartbeats did.
+all_users = events[["USER_ID", "SESSION_ID"]].drop_duplicates().shape[0]
+launched = events[
+    (events["STEP_IDX"] == 1) & (events["EVENT_LABEL"] == "GAME_LAUNCHED")
+][["USER_ID", "SESSION_ID"]].drop_duplicates()
+events = events.merge(launched, on=["USER_ID", "SESSION_ID"], how="inner")
+kept_users = launched.shape[0]
+dropped = all_users - kept_users
+
 # Bucket HEIST_START_* tail into HEIST_START_other to keep the Sankey readable
 TOP_HEISTS = {"SnGBB", "BranchBank", "SnGFO", "JewelryStore", "ONE", "FirstPlayable", "Bebe"}
 
@@ -88,8 +99,11 @@ links = (
 )
 
 n_players = events["USER_ID"].nunique()
-title = (f"<b>Event Funnel · {cohort.strftime('%Y-%m')} cohort · n={n_players:,}</b>"
-         f"<br><sub>Each column = N-th event in the player's first session. "
+drop_note = (f" · {dropped:,} sessions excluded (no GAME_LAUNCHED at step 1)"
+             if dropped else "")
+title = (f"<b>Event Funnel · {cohort.strftime('%Y-%m')} cohort · n={n_players:,}{drop_note}</b>"
+         f"<br><sub>Every journey starts at GAME_LAUNCHED. "
+         f"Each column = N-th event in the player's first session. "
          f"Steps 1–{max_step} shown; links < {min_users} players hidden.</sub>")
 
 fig = build_sankey(links, min_users=min_users, max_step=max_step, title=title, height=900)
