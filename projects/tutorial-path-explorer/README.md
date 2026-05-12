@@ -20,7 +20,7 @@
 Run from the **monorepo root** (not from this folder):
 
 ```bash
-cd dataplatform-streamlit
+cd gameplay-streamlit-dataportal
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r projects/tutorial-path-explorer/requirements.txt
 

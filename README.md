@@ -1,4 +1,4 @@
-# dataplatform-streamlit
+# gameplay-streamlit-dataportal
 
 Monorepo for self-hosted Streamlit apps that sit on top of the Starbreeze data platform — primarily PD2/PD3 gameplay analytics, but anything that reads from the warehouse and needs an interactive UI belongs here.
 
@@ -27,8 +27,8 @@ Monorepo for self-hosted Streamlit apps that sit on top of the Starbreeze data p
 ## Quick start (any project)
 
 ```bash
-git clone git@github.com:StarbreezeStudios/dataplatform-streamlit.git
-cd dataplatform-streamlit
+git clone git@github.com:StarbreezeStudios/gameplay-streamlit-dataportal.git
+cd gameplay-streamlit-dataportal
 python3 -m venv .venv && source .venv/bin/activate
 
 # pick a project
@@ -63,7 +63,7 @@ Push to `main`. The Dataportal Jenkins folder auto-detects the project via its `
 ## Deployment summary
 
 - **Jenkins folder:** `Dataportal` (Jenkins-side workspace `dataportal-projects`)
-- **Discovery rule:** Starbreeze org repos named `*-dataportal`, plus the temporary exception `analytic-artifact-platform`. This repo is added to the exception list until the org-side mirror exists.
+- **Discovery rule:** Starbreeze org repos named `*-dataportal`, plus the temporary exception `analytic-artifact-platform`. This repo matches the `*-dataportal` pattern directly — no exception needed.
 - **Server:** Helsinki (`/opt/<project-name>` per project), key-pair Snowflake auth, ports per CONVENTIONS.md.
 - **Bot access:** StarbreezeBot must be invited as a Read collaborator on this repo for Jenkins to clone (GitHub settings → Collaborators).
 

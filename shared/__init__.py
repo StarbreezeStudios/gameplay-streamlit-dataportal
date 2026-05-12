@@ -1,4 +1,4 @@
-"""Shared utilities for dataplatform-streamlit projects.
+"""Shared utilities for gameplay-streamlit-dataportal projects.
 
 Import paths (from any project's app.py / pages/*):
 

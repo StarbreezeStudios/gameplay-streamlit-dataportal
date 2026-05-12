@@ -6,7 +6,7 @@ Project memory for the PD3 Tutorial Path Explorer.
 
 Streamlit app for STX-1125. Investigates the new-PD3-player first-session funnel — game launch → login → tutorial → heist — and the parallel UI-screen navigation flow. Two Sankey views, shared sidebar filters.
 
-Lives in the `dataplatform-streamlit` monorepo at `projects/tutorial-path-explorer/`. Deployed to Helsinki port 8504 via the project's own Jenkinsfile.
+Lives in the `gameplay-streamlit-dataportal` monorepo at `projects/tutorial-path-explorer/`. Deployed to Helsinki port 8504 via the project's own Jenkinsfile.
 
 ## Data pipeline
 
