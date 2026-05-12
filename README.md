@@ -27,7 +27,7 @@ Monorepo for self-hosted Streamlit apps that sit on top of the Starbreeze data p
 ## Quick start (any project)
 
 ```bash
-git clone git@github.com:IreneHjorth/dataplatform-streamlit.git
+git clone git@github.com:StarbreezeStudios/dataplatform-streamlit.git
 cd dataplatform-streamlit
 python3 -m venv .venv && source .venv/bin/activate
 

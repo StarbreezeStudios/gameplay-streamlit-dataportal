@@ -82,7 +82,7 @@ The two auth paths converge in `shared/sf.py` — anything that sets `SNOWFLAKE_
 ## Jenkins integration
 
 - Jenkins folder: **Dataportal** · workspace `dataportal-projects`.
-- Discovery: repos in the Starbreeze GitHub org named `*-dataportal` (with a `Jenkinsfile`). Temporary exception: `analytic-artifact-platform`, plus this repo (`IreneHjorth/dataplatform-streamlit`) until the org-side mirror exists.
+- Discovery: repos in the Starbreeze GitHub org named `*-dataportal` (with a `Jenkinsfile`). Temporary exception: `analytic-artifact-platform`, plus this repo (`StarbreezeStudios/dataplatform-streamlit`) until it is renamed to match `*-dataportal`.
 - Per-project Jenkinsfile: lives at `projects/<project-name>/Jenkinsfile`. Each project has its own pipeline; pushes that touch a project's subdir trigger only that project's build (assuming the multibranch scanner is configured per-subfolder).
 - Snowflake credentials are pulled from Jenkins credential `snowflake_prod_credentials` via the standard `withCredentials(sshUserPrivateKey ...)` block — see the `_template` Jenkinsfile.
 
