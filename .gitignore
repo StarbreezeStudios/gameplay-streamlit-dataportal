@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Streamlit / app secrets (NEVER commit)
+**/.streamlit/secrets.toml
+**/.env
+**/.env.local
+**/keys/
+*.p8
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build / deploy artifacts
+target/
+dist/
+build/

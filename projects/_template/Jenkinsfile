@@ -1,0 +1,102 @@
+// Template Jenkinsfile — copy when creating a new project. Replace:
+//   <project-name>  : kebab-case project folder name (matches projects/<...>)
+//   <port>          : Helsinki port allocation (see CONVENTIONS.md)
+// Discovered by the Dataportal Jenkins folder via this file.
+
+pipeline {
+    agent { label ('helsinki') }
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(daysToKeepStr: '365'))
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        STACK_DIR    = '/opt/<project-name>'
+        PROJECT_DIR  = 'projects/<project-name>'
+        APP_PORT     = '<port>'
+    }
+
+    stages {
+        stage('Setup Directory') {
+            steps {
+                sh '''#!/bin/bash
+                    set -e
+                    if [ ! -d "${STACK_DIR}" ]; then
+                        sudo mkdir -p "${STACK_DIR}"
+                        sudo chown $(whoami):$(whoami) "${STACK_DIR}"
+                    fi
+                '''
+            }
+        }
+
+        stage('Deploy Configuration') {
+            steps {
+                sh '''#!/bin/bash
+                    set -e
+                    rm -rf "${STACK_DIR}/shared"
+                    cp -r "${WORKSPACE}/shared" "${STACK_DIR}/shared"
+
+                    rm -rf "${STACK_DIR}/${PROJECT_DIR}"
+                    mkdir -p "${STACK_DIR}/${PROJECT_DIR}"
+                    cp -r "${WORKSPACE}/${PROJECT_DIR}/." "${STACK_DIR}/${PROJECT_DIR}/"
+
+                    cp "${WORKSPACE}/${PROJECT_DIR}/docker-compose.yaml" "${STACK_DIR}/docker-compose.yaml"
+                '''
+            }
+        }
+
+        stage('Setup Snowflake Credentials') {
+            steps {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'snowflake_prod_credentials',
+                    usernameVariable: 'SF_USER',
+                    keyFileVariable: 'SF_KEY_PATH'
+                )]) {
+                    sh '''#!/bin/bash
+                    set -e
+                    ENV_FILE="${STACK_DIR}/${PROJECT_DIR}/.env"
+                    mkdir -p "${STACK_DIR}/${PROJECT_DIR}/keys"
+                    cp "$SF_KEY_PATH" "${STACK_DIR}/${PROJECT_DIR}/keys/snowflake_key.p8"
+                    chmod 600 "${STACK_DIR}/${PROJECT_DIR}/keys/snowflake_key.p8"
+
+                    cat > "$ENV_FILE" <<EOL
+SNOWFLAKE_USER=$SF_USER
+SNOWFLAKE_ACCOUNT=RE15009-STARBREEZE
+SNOWFLAKE_WAREHOUSE=JENKINS_PROD
+SNOWFLAKE_DATABASE=PAYDAY3_PROD
+SNOWFLAKE_ROLE=SYSADMIN
+SNOWFLAKE_KEY_DIR=./keys
+EOL
+                    chmod 600 "$ENV_FILE"
+                '''
+                }
+            }
+        }
+
+        stage('Deploy Stack') {
+            steps {
+                sh '''#!/bin/bash
+                    set -e
+                    cd "${STACK_DIR}"
+                    docker compose down --remove-orphans || true
+                    docker compose build --no-cache
+                    docker compose up -d
+                    sleep 15
+                    curl -s --retry 10 --retry-delay 5 http://localhost:${APP_PORT}/_stcore/health > /dev/null \
+                        && echo "Streamlit up on port ${APP_PORT}." \
+                        || echo "Streamlit not ready yet."
+                '''
+            }
+        }
+    }
+
+    post {
+        failure {
+            sh '''
+                cd "${STACK_DIR}" 2>/dev/null && docker compose logs --tail=50 || true
+            '''
+        }
+    }
+}

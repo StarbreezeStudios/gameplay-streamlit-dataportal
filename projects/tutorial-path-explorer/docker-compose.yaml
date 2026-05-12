@@ -1,0 +1,30 @@
+# Tutorial Path Explorer (STX-1125) — port 8504 on Helsinki.
+# Build context is the monorepo root so `shared/` is included.
+# UI: http://helsinki:8504
+
+services:
+  tutorial-path-explorer:
+    build:
+      context: ../..
+      dockerfile: projects/tutorial-path-explorer/Dockerfile
+    container_name: tutorial-path-explorer
+    restart: unless-stopped
+    ports:
+      - "8504:8504"
+    env_file:
+      - .env
+    environment:
+      SNOWFLAKE_PRIVATE_KEY_PATH: /app/keys/snowflake_key.p8
+    volumes:
+      - ${SNOWFLAKE_KEY_DIR:-./keys}:/app/keys:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8504/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - tutorial-path-explorer
+
+networks:
+  tutorial-path-explorer:
+    driver: bridge

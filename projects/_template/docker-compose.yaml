@@ -1,0 +1,29 @@
+# Template — replace <project-name> and <port>.
+# Build context is the monorepo root.
+
+services:
+  PROJECT_NAME:
+    build:
+      context: ../..
+      dockerfile: projects/_template/Dockerfile
+    container_name: PROJECT_NAME
+    restart: unless-stopped
+    ports:
+      - "8500:8500"
+    env_file:
+      - .env
+    environment:
+      SNOWFLAKE_PRIVATE_KEY_PATH: /app/keys/snowflake_key.p8
+    volumes:
+      - ${SNOWFLAKE_KEY_DIR:-./keys}:/app/keys:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - PROJECT_NAME
+
+networks:
+  PROJECT_NAME:
+    driver: bridge
