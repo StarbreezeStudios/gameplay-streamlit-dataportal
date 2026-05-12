@@ -44,16 +44,22 @@ pipeline {
                     rm -rf "${STACK_DIR}/shared"
                     cp -r "${WORKSPACE}/shared" "${STACK_DIR}/shared"
 
-                    # project subdirectory
+                    # project subdirectory (docker-compose.yaml is inside this copy)
                     rm -rf "${STACK_DIR}/${PROJECT_DIR}"
                     mkdir -p "${STACK_DIR}/${PROJECT_DIR}"
                     cp -r "${WORKSPACE}/${PROJECT_DIR}/." "${STACK_DIR}/${PROJECT_DIR}/"
 
-                    # docker-compose at the stack root so the relative build context works
-                    cp "${WORKSPACE}/${PROJECT_DIR}/docker-compose.yaml" "${STACK_DIR}/docker-compose.yaml"
-
+                    # Stack layout mirrors the monorepo so compose's `context: ../..`
+                    # resolves to the stack root, where shared/ + projects/ live:
+                    #   ${STACK_DIR}/
+                    #     shared/
+                    #     projects/<name>/
+                    #       docker-compose.yaml
+                    #       Dockerfile
+                    #       .env, keys/  (written in the next stage)
                     echo "Deployed to ${STACK_DIR}:"
                     ls -la "${STACK_DIR}"
+                    ls -la "${STACK_DIR}/${PROJECT_DIR}"
                 '''
             }
         }
@@ -93,7 +99,9 @@ EOL
             steps {
                 sh '''#!/bin/bash
                     set -e
-                    cd "${STACK_DIR}"
+                    # docker-compose.yaml lives in the project subdir so its
+                    # `context: ../..` resolves correctly to the stack root.
+                    cd "${STACK_DIR}/${PROJECT_DIR}"
 
                     echo "Starting Tutorial Path Explorer..."
                     docker compose down --remove-orphans || true
@@ -114,7 +122,7 @@ EOL
             steps {
                 sh '''#!/bin/bash
                     echo "=== Container Status ==="
-                    docker compose -f "${STACK_DIR}/docker-compose.yaml" ps
+                    docker compose -f "${STACK_DIR}/${PROJECT_DIR}/docker-compose.yaml" ps
 
                     echo ""
                     echo "Tutorial Path Explorer:  http://helsinki:8504"
@@ -129,7 +137,7 @@ EOL
             echo 'Tutorial Path Explorer deployment failed.'
             sh '''
                 echo "=== Container Logs ==="
-                cd "${STACK_DIR}" 2>/dev/null && docker compose logs --tail=50 || true
+                cd "${STACK_DIR}/${PROJECT_DIR}" 2>/dev/null && docker compose logs --tail=50 || true
             '''
         }
     }
