@@ -38,14 +38,18 @@ Helsinki internal server. **Always check this table before deploying a new proje
 
 | Port | Project | Notes |
 |---|---|---|
-| 8501 | budget tracker | pre-existing |
-| 8502 | revenue-target | pre-existing |
-| 8503 | community-dashboard | pre-existing |
-| 8504 | _claimed by another service on Helsinki — see Jenkins build log_ | (probe via ss/netstat) |
-| 8505 | _claimed by another service on Helsinki — see Jenkins build log_ | (probe via ss/netstat) |
-| 8506-8509 | _likely also claimed — verify before allocating_ | |
-| 8510 | tutorial-path-explorer | STX-1125 |
+| 8501 | `streamlit-budget` | pre-existing |
+| 8502 | `streamlit-revenue-target` | pre-existing |
+| 8503 | `community-dashboard` | pre-existing |
+| 8504 | `analytic-artifact-platform` | STX-1615 (internal port 8501) |
+| 8505 | `payday-weekly-sales` | newest pre-existing |
+| 8506-8509 | _available_ (verify with `ss -tln` on Helsinki before allocating) | |
+| **8510** | **`tutorial-path-explorer`** | **STX-1125** |
 | 8511+ | _available_ | |
+
+> Source of truth: `docker ps` on Helsinki. The Deploy Stack stage in the
+> root `Jenkinsfile` logs current 85xx port usage on every build; consult
+> the latest build log if this table feels stale.
 | 3030 | Metabase | not a project here |
 
 ## Imports — `shared/`
