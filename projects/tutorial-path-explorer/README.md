@@ -3,7 +3,7 @@
 > Interactive Sankey explorer of the PD3 new-player first-session journey — game launch → login → tutorial → heist — plus the parallel UI-screen navigation flow.
 
 - **Owner:** Irene Hjorth
-- **Helsinki URL:** http://helsinki:8504
+- **Helsinki URL:** http://helsinki:8505
 - **Jira:** [STX-1125](https://starbreeze.atlassian.net/browse/STX-1125)
 - **Data:** three incremental dbt models in `payday3-dbt` (`int_new_player_first_session`, `fct_new_player_first_session_events`, `fct_new_player_ui_screen_flow`) → `PAYDAY3_PROD.DBT_ANALYTICS`.
 
@@ -41,7 +41,7 @@ streamlit run app.py
 
 ## Deployment
 
-Push to `main` → Dataportal Jenkins picks up `Jenkinsfile` and deploys to `/opt/tutorial-path-explorer` on Helsinki, port 8504.
+Push to `main` → Dataportal Jenkins picks up `Jenkinsfile` and deploys to `/opt/tutorial-path-explorer` on Helsinki, port 8505.
 
 ## Caveats
 

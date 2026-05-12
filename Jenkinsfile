@@ -4,7 +4,7 @@
 // the changed project (e.g. with `changeset` filters per `projects/<name>/**`).
 //
 // Build context = monorepo root so the `shared/` package is included.
-// UI: http://helsinki:8504
+// UI: http://helsinki:8505
 
 pipeline {
     agent { label ('helsinki') }
@@ -103,6 +103,9 @@ EOL
                     # `context: ../..` resolves correctly to the stack root.
                     cd "${STACK_DIR}/${PROJECT_DIR}"
 
+                    echo "Stopping any existing container with the same name (in case compose lost track)..."
+                    docker rm -f tutorial-path-explorer 2>/dev/null || true
+
                     echo "Starting Tutorial Path Explorer..."
                     docker compose down --remove-orphans || true
                     docker compose build --no-cache
@@ -111,7 +114,7 @@ EOL
                     echo "Waiting for service to start..."
                     sleep 15
 
-                    curl -s --retry 10 --retry-delay 5 http://localhost:8504/_stcore/health > /dev/null \
+                    curl -s --retry 10 --retry-delay 5 http://localhost:8505/_stcore/health > /dev/null \
                         && echo "Streamlit is up." \
                         || echo "Streamlit not responding yet (may still be initializing)."
                 '''
@@ -125,7 +128,7 @@ EOL
                     docker compose -f "${STACK_DIR}/${PROJECT_DIR}/docker-compose.yaml" ps
 
                     echo ""
-                    echo "Tutorial Path Explorer:  http://helsinki:8504"
+                    echo "Tutorial Path Explorer:  http://helsinki:8505"
                 '''
             }
         }
