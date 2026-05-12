@@ -4,7 +4,7 @@ How to add, run, and deploy a Streamlit project in this monorepo.
 
 ## Project layout
 
-Each project lives under `projects/<project-name>/` and is fully self-contained on the deploy side (its own Dockerfile, Jenkinsfile, requirements). The only thing it shares with siblings is `shared/` at the repo root — Snowflake helpers, the Sankey builder, and any other reusable utilities.
+Each project lives under `projects/<project-name>/` and is fully self-contained on the deploy side (its own Dockerfile, docker-compose, requirements). Deploy orchestration lives in the **root** `Jenkinsfile` (see Jenkins integration below). The only thing projects share is `shared/` at the repo root — Snowflake helpers, the Sankey builder, and any other reusable utilities.
 
 ```
 projects/<project-name>/
@@ -15,7 +15,7 @@ projects/<project-name>/
 ├── requirements.txt           # pinned project deps
 ├── Dockerfile                 # multi-stage build, copies shared/ + project
 ├── docker-compose.yaml        # local stack
-├── Jenkinsfile                # deploy pipeline (discovered by Dataportal)
+│   (no per-project Jenkinsfile — root Jenkinsfile dispatches; see below)
 ├── .streamlit/
 │   ├── config.toml            # theme + server flags (committed)
 │   └── secrets.example.toml   # template (committed); real `secrets.toml` gitignored
@@ -83,7 +83,7 @@ The two auth paths converge in `shared/sf.py` — anything that sets `SNOWFLAKE_
 
 - Jenkins folder: **Dataportal** · workspace `dataportal-projects`.
 - Discovery: repos in the Starbreeze GitHub org named `*-dataportal` (with a `Jenkinsfile`). Temporary exception: `analytic-artifact-platform` until renamed to match `*-dataportal`.
-- Per-project Jenkinsfile: lives at `projects/<project-name>/Jenkinsfile`. Each project has its own pipeline; pushes that touch a project's subdir trigger only that project's build (assuming the multibranch scanner is configured per-subfolder).
+- Root Jenkinsfile (`/Jenkinsfile`): single entry point that the Dataportal multibranch scanner picks up. While there is only one project in the monorepo it deploys that one directly. When a second project is added, convert this into a dispatcher that detects which `projects/<name>/**` paths changed (via `when { changeset }` filters) and runs only the relevant deploy stages.
 - Snowflake credentials are pulled from Jenkins credential `snowflake_prod_credentials` via the standard `withCredentials(sshUserPrivateKey ...)` block — see the `_template` Jenkinsfile.
 
 ## Adding a new project — checklist

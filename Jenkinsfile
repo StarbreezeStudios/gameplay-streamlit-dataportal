@@ -1,6 +1,9 @@
-// Tutorial Path Explorer (STX-1125) — Dataportal deployment pipeline.
-// Discovered by the Dataportal Jenkins folder via the project's Jenkinsfile.
-// Build context is the monorepo root so `shared/` is included in the image.
+// Root Jenkinsfile — discovered by the Dataportal multibranch scanner.
+// For now this deploys the single project (tutorial-path-explorer); when a
+// second project is added, convert this into a dispatcher that builds only
+// the changed project (e.g. with `changeset` filters per `projects/<name>/**`).
+//
+// Build context = monorepo root so the `shared/` package is included.
 // UI: http://helsinki:8504
 
 pipeline {
