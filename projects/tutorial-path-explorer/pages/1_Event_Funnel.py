@@ -35,6 +35,19 @@ max_step   = st.sidebar.slider(
     help="Truncate after this step index. Each step = N-th event in the session.",
     key="event_funnel_max_step",
 )
+retention_segment = st.sidebar.radio(
+    "Retention segment",
+    options=["All players", "Returned D1+", "Dropped after D0"],
+    index=0,
+    help=(
+        "Split the cohort by whether players came back after their first-login day.\n\n"
+        "• **Returned D1+** — logged in at least once on a calendar day after first-login.\n"
+        "• **Dropped after D0** — no return; only counts users whose first-login was ≥1 day ago "
+        "(otherwise retention can't be judged yet).\n"
+        "• Source: `INT_NEW_PLAYER_FIRST_SESSION.RETURNED_AFTER_D0` (pre-aggregated from `FACT_DAILY_USER_LOGINS`)."
+    ),
+    key="event_funnel_retention",
+)
 
 if cohort is None:
     st.warning("Pick a cohort month in the sidebar first.")
@@ -59,10 +72,47 @@ def fetch_events(cohort_month, platforms: tuple[str, ...], countries: tuple[str,
     return run_query(sql, tuple(params))
 
 
+@st.cache_data(ttl=900, show_spinner="Loading retention flags…")
+def fetch_retention(cohort_month) -> pd.DataFrame:
+    """Per-user retention flags from the enriched int model.
+
+    `returned_after_d0` and `judgeable_d1` are pre-computed in
+    int_new_player_first_session (one row per user) — cheaper than
+    re-aggregating FACT_DAILY_USER_LOGINS on every page load.
+    """
+    sql = """
+        SELECT
+            USER_ID,
+            RETURNED_AFTER_D0,
+            JUDGEABLE_D1 AS JUDGEABLE
+        FROM PAYDAY3_PROD.DBT_ANALYTICS.INT_NEW_PLAYER_FIRST_SESSION
+        WHERE COHORT_MONTH = %s
+    """
+    return run_query(sql, (cohort_month,))
+
+
 events = fetch_events(cohort, tuple(platforms), tuple(countries))
 if events.empty:
     st.info("No events match the current filters.")
     st.stop()
+
+# Apply retention segment BEFORE the GAME_LAUNCHED anchor so the
+# "n_players" total reflects the chosen segment.
+retention_dropped = 0
+if retention_segment != "All players":
+    ret = fetch_retention(cohort)
+    if retention_segment == "Returned D1+":
+        keep_users = ret.loc[ret["RETURNED_AFTER_D0"] == 1, "USER_ID"]
+    else:  # Dropped after D0
+        keep_users = ret.loc[
+            (ret["RETURNED_AFTER_D0"] == 0) & (ret["JUDGEABLE"] == 1), "USER_ID"
+        ]
+    before = events["USER_ID"].nunique()
+    events = events[events["USER_ID"].isin(set(keep_users))]
+    retention_dropped = before - events["USER_ID"].nunique()
+    if events.empty:
+        st.info(f"No players in the **{retention_segment}** segment for this cohort.")
+        st.stop()
 
 # Anchor every journey at GAME_LAUNCHED so the Sankey reads as a single funnel.
 # Drops sessions whose step 1 is something else (LOGIN_OK alone, SESSION_END, etc.) —
@@ -94,7 +144,8 @@ links = (
 n_players = events["USER_ID"].nunique()
 drop_note = (f" · {dropped:,} sessions excluded (no GAME_LAUNCHED at step 1)"
              if dropped else "")
-title = (f"<b>Event Funnel · {cohort.strftime('%Y-%m')} cohort · n={n_players:,}{drop_note}</b>"
+seg_note = "" if retention_segment == "All players" else f" · segment: {retention_segment}"
+title = (f"<b>Event Funnel · {cohort.strftime('%Y-%m')} cohort · n={n_players:,}{seg_note}{drop_note}</b>"
          f"<br><sub>Every journey starts at GAME_LAUNCHED. "
          f"Each column = N-th event in the player's first session. "
          f"Steps 1–{max_step} shown; links < {min_users} players hidden.</sub>")
