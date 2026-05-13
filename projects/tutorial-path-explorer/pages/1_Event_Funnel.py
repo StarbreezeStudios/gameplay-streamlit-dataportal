@@ -395,17 +395,24 @@ with st.status("Loading event funnel…", expanded=True) as status:
                  f"{len(links_d):,} dropped-side transitions.")
 
         status.update(label="Building side-by-side Sankeys + divergence chart…")
+        # `segment_size` rescales link widths to % of segment so the two
+        # Sankeys are directly comparable (both root flows render at the
+        # same visual width). Filter threshold and hover counts stay raw.
         fig_r = build_sankey(
             links_r, min_users=min_users, max_step=max_step,
             title=(f"<b>Returned D1+ · n={kept_r:,}</b>"
-                   f"<br><sub>Steps 1–{max_step} shown; links < {min_users} hidden.</sub>"),
-            height=720,
+                   f"<br><sub>Widths = % of segment so this side is "
+                   f"row-comparable with Dropped. Steps 1–{max_step}, "
+                   f"links < {min_users} hidden.</sub>"),
+            height=720, segment_size=kept_r,
         )
         fig_d = build_sankey(
             links_d, min_users=min_users, max_step=max_step,
             title=(f"<b>Dropped after D0 · n={kept_d:,}</b>"
-                   f"<br><sub>Steps 1–{max_step} shown; links < {min_users} hidden.</sub>"),
-            height=720,
+                   f"<br><sub>Widths = % of segment so this side is "
+                   f"row-comparable with Returned. Steps 1–{max_step}, "
+                   f"links < {min_users} hidden.</sub>"),
+            height=720, segment_size=kept_d,
         )
         diff_fig = divergence_chart(links_r, links_d,
                                     max_step=max_step, min_link_users=min_users)

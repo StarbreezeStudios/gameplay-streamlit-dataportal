@@ -109,16 +109,23 @@ def build_sankey(
     title: str = "",
     height: int = 900,
     color_fn=None,
+    segment_size: int | None = None,
 ) -> go.Figure:
     """Build a column-stacked Sankey figure.
 
     Parameters
     ----------
     links : DataFrame with columns FROM_IDX, FROM_LABEL, TO_LABEL, N_USERS
-    min_users : drop links below this count
+    min_users : drop links below this count (raw, in players)
     max_step  : truncate at this step_idx
     title     : figure title (HTML allowed for <br>/<sub>)
     color_fn  : optional override for node colors (label -> hex string)
+    segment_size : if provided, link widths are rendered as % of this number
+        instead of raw player counts (link width = N_USERS / segment_size * 100).
+        Use to make two side-by-side Sankeys with different cohort totals
+        visually comparable — both root flows render at the same width. The
+        `min_users` filter and the player-count in the hover tooltip still
+        operate on raw counts; only the visual width changes.
     """
     color_fn = color_fn or _default_color
 
@@ -143,11 +150,18 @@ def build_sankey(
             node_keys.append(k)
         return idx_map[k]
 
-    src, tgt, val = [], [], []
+    # `val` drives visual width — scaled to % of segment when normalising
+    # so two side-by-side Sankeys are directly width-comparable. `raw_val`
+    # always carries the player count and is what min_users filters on
+    # (above) and what link hover displays.
+    src, tgt, val, raw_val = [], [], [], []
     for r in df.itertuples():
         s = node(int(r.FROM_IDX), r.FROM_LABEL)
         t = node(int(r.FROM_IDX) + 1, r.TO_LABEL)
-        src.append(s); tgt.append(t); val.append(int(r.N_USERS))
+        n = int(r.N_USERS)
+        src.append(s); tgt.append(t)
+        raw_val.append(n)
+        val.append(n / segment_size * 100 if segment_size else n)
 
     # Iteratively prune orphan nodes: any node at step > root that has no
     # visible inbound flow. They appear when the min_users filter hides the
@@ -178,6 +192,7 @@ def build_sankey(
             src = [src[k] for k in keep]
             tgt = [tgt[k] for k in keep]
             val = [val[k] for k in keep]
+            raw_val = [raw_val[k] for k in keep]
 
         # Drop now-unreferenced nodes and reindex.
         referenced = set(src) | set(tgt)
@@ -202,9 +217,11 @@ def build_sankey(
         )
         return fig
 
+    # Node hover always shows raw player counts, so accumulate from raw_val
+    # rather than the (potentially scaled-to-%) val list.
     inbound  = {i: 0 for i in range(len(node_keys))}
     outbound = {i: 0 for i in range(len(node_keys))}
-    for s, t, v in zip(src, tgt, val):
+    for s, t, v in zip(src, tgt, raw_val):
         outbound[s] += v; inbound[t] += v
 
     n_cols = max(i for (i, _) in node_keys) + 1
@@ -214,6 +231,18 @@ def build_sankey(
     node_full    = [l for (_i, l) in node_keys]              # original (for hover)
     node_step    = [i for (i, _) in node_keys]
     node_color   = [color_fn(l) for (_i, l) in node_keys]
+
+    # Link hover shows raw player count from customdata; when scaled-to-%,
+    # also surfaces the % of segment so the user sees both at once.
+    if segment_size:
+        link_hovertemplate = (
+            "%{source.label} → %{target.label}"
+            "<br>%{customdata:,} players (%{value:.2f}% of segment)<extra></extra>"
+        )
+    else:
+        link_hovertemplate = (
+            "%{source.label} → %{target.label}<br>%{customdata:,} players<extra></extra>"
+        )
 
     fig = go.Figure(go.Sankey(
         arrangement="snap",
@@ -232,7 +261,8 @@ def build_sankey(
         ),
         link=dict(
             source=src, target=tgt, value=val,
-            hovertemplate="%{source.label} → %{target.label}<br>%{value:,} players<extra></extra>",
+            customdata=raw_val,
+            hovertemplate=link_hovertemplate,
             color="rgba(120,120,120,0.22)",
         ),
     ))
