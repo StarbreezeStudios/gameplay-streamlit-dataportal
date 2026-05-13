@@ -101,6 +101,14 @@ if events.empty:
 retention_dropped = 0
 if retention_segment != "All players":
     ret = fetch_retention(cohort)
+    # Snowflake NUMBER columns can come back as decimal.Decimal in object dtype.
+    # Coerce both flag columns to int so `== 1` / `== 0` is bulletproof,
+    # and coerce USER_ID to str on both sides so the isin() join can't fail
+    # on a Decimal-vs-str mismatch.
+    ret["RETURNED_AFTER_D0"] = pd.to_numeric(ret["RETURNED_AFTER_D0"], errors="coerce").fillna(0).astype(int)
+    ret["JUDGEABLE"]         = pd.to_numeric(ret["JUDGEABLE"],         errors="coerce").fillna(0).astype(int)
+    ret["USER_ID"]           = ret["USER_ID"].astype(str)
+    events["USER_ID"]        = events["USER_ID"].astype(str)
     if retention_segment == "Returned D1+":
         keep_users = ret.loc[ret["RETURNED_AFTER_D0"] == 1, "USER_ID"]
     else:  # Dropped after D0
@@ -108,8 +116,15 @@ if retention_segment != "All players":
             (ret["RETURNED_AFTER_D0"] == 0) & (ret["JUDGEABLE"] == 1), "USER_ID"
         ]
     before = events["USER_ID"].nunique()
-    events = events[events["USER_ID"].isin(set(keep_users))]
+    keep_set = set(keep_users)
+    events = events[events["USER_ID"].isin(keep_set)]
     retention_dropped = before - events["USER_ID"].nunique()
+    st.caption(
+        f"Retention diagnostics — cohort total in int model: {len(ret):,} · "
+        f"in segment **{retention_segment}**: {len(keep_set):,} · "
+        f"intersected with events fact: {events['USER_ID'].nunique():,} "
+        f"(dropped {retention_dropped:,} of {before:,} pre-filter)."
+    )
     if events.empty:
         st.info(f"No players in the **{retention_segment}** segment for this cohort.")
         st.stop()
