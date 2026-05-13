@@ -91,81 +91,103 @@ def fetch_retention(cohort_month) -> pd.DataFrame:
     return run_query(sql, (cohort_month,))
 
 
-events = fetch_events(cohort, tuple(platforms), tuple(countries))
-if events.empty:
-    st.info("No events match the current filters.")
-    st.stop()
-
-# Apply retention segment BEFORE the GAME_LAUNCHED anchor so the
-# "n_players" total reflects the chosen segment.
-retention_dropped = 0
-if retention_segment != "All players":
-    ret = fetch_retention(cohort)
-    # Snowflake NUMBER columns can come back as decimal.Decimal in object dtype.
-    # Coerce both flag columns to int so `== 1` / `== 0` is bulletproof,
-    # and coerce USER_ID to str on both sides so the isin() join can't fail
-    # on a Decimal-vs-str mismatch.
-    ret["RETURNED_AFTER_D0"] = pd.to_numeric(ret["RETURNED_AFTER_D0"], errors="coerce").fillna(0).astype(int)
-    ret["JUDGEABLE"]         = pd.to_numeric(ret["JUDGEABLE"],         errors="coerce").fillna(0).astype(int)
-    ret["USER_ID"]           = ret["USER_ID"].astype(str)
-    events["USER_ID"]        = events["USER_ID"].astype(str)
-    if retention_segment == "Returned D1+":
-        keep_users = ret.loc[ret["RETURNED_AFTER_D0"] == 1, "USER_ID"]
-    else:  # Dropped after D0
-        keep_users = ret.loc[
-            (ret["RETURNED_AFTER_D0"] == 0) & (ret["JUDGEABLE"] == 1), "USER_ID"
-        ]
-    before = events["USER_ID"].nunique()
-    keep_set = set(keep_users)
-    events = events[events["USER_ID"].isin(keep_set)]
-    retention_dropped = before - events["USER_ID"].nunique()
-    st.caption(
-        f"Retention diagnostics — cohort total in int model: {len(ret):,} · "
-        f"in segment **{retention_segment}**: {len(keep_set):,} · "
-        f"intersected with events fact: {events['USER_ID'].nunique():,} "
-        f"(dropped {retention_dropped:,} of {before:,} pre-filter)."
-    )
+# All the heavy work below sits inside one st.status block so the user
+# sees what's happening instead of staring at a blank page. Each .update()
+# bumps the visible label; on a cold container the whole chain takes
+# ~15s for a typical cohort. show_spinner on the cached fetches gives
+# additional in-place feedback while Snowflake is the bottleneck.
+with st.status("Loading event funnel…", expanded=True) as status:
+    status.update(label="Fetching event timeline from Snowflake…")
+    events = fetch_events(cohort, tuple(platforms), tuple(countries))
     if events.empty:
-        st.info(f"No players in the **{retention_segment}** segment for this cohort.")
+        status.update(label="No events match the current filters.",
+                      state="complete", expanded=False)
+        st.info("No events match the current filters.")
         st.stop()
+    st.write(f"• Pulled {len(events):,} event rows "
+             f"({events['USER_ID'].nunique():,} unique players).")
 
-# Anchor every journey at GAME_LAUNCHED so the Sankey reads as a single funnel.
-# Drops sessions whose step 1 is something else (LOGIN_OK alone, SESSION_END, etc.) —
-# usually telemetry gaps where the launch event didn't land but heartbeats did.
-all_users = events[["USER_ID", "SESSION_ID"]].drop_duplicates().shape[0]
-launched = events[
-    (events["STEP_IDX"] == 1) & (events["EVENT_LABEL"] == "GAME_LAUNCHED")
-][["USER_ID", "SESSION_ID"]].drop_duplicates()
-events = events.merge(launched, on=["USER_ID", "SESSION_ID"], how="inner")
-kept_users = launched.shape[0]
-dropped = all_users - kept_users
+    # Apply retention segment BEFORE the GAME_LAUNCHED anchor so the
+    # "n_players" total reflects the chosen segment.
+    retention_dropped = 0
+    if retention_segment != "All players":
+        status.update(label=f"Applying retention segment: {retention_segment}…")
+        ret = fetch_retention(cohort)
+        # Snowflake NUMBER columns can come back as decimal.Decimal in object dtype.
+        # Coerce both flag columns to int so `== 1` / `== 0` is bulletproof,
+        # and coerce USER_ID to str on both sides so the isin() join can't fail
+        # on a Decimal-vs-str mismatch.
+        ret["RETURNED_AFTER_D0"] = pd.to_numeric(ret["RETURNED_AFTER_D0"], errors="coerce").fillna(0).astype(int)
+        ret["JUDGEABLE"]         = pd.to_numeric(ret["JUDGEABLE"],         errors="coerce").fillna(0).astype(int)
+        ret["USER_ID"]           = ret["USER_ID"].astype(str)
+        events["USER_ID"]        = events["USER_ID"].astype(str)
+        if retention_segment == "Returned D1+":
+            keep_users = ret.loc[ret["RETURNED_AFTER_D0"] == 1, "USER_ID"]
+        else:  # Dropped after D0
+            keep_users = ret.loc[
+                (ret["RETURNED_AFTER_D0"] == 0) & (ret["JUDGEABLE"] == 1), "USER_ID"
+            ]
+        before = events["USER_ID"].nunique()
+        keep_set = set(keep_users)
+        events = events[events["USER_ID"].isin(keep_set)]
+        retention_dropped = before - events["USER_ID"].nunique()
+        st.write(
+            f"• Cohort total in int model: {len(ret):,} · "
+            f"in segment **{retention_segment}**: {len(keep_set):,} · "
+            f"intersected with events fact: {events['USER_ID'].nunique():,} "
+            f"(dropped {retention_dropped:,} of {before:,} pre-filter)."
+        )
+        if events.empty:
+            status.update(label=f"No players in the {retention_segment} segment.",
+                          state="complete", expanded=False)
+            st.info(f"No players in the **{retention_segment}** segment for this cohort.")
+            st.stop()
 
-# Pass labels through as-is. Each distinct heist gets its own node so we
-# can see exactly which heist players move into after the tutorial. The
-# `min_users` slider hides links carrying fewer than N players, which is
-# how visual density is kept reasonable rather than by relabeling.
-events["LABEL"] = events["EVENT_LABEL"]
+    # Anchor every journey at GAME_LAUNCHED so the Sankey reads as a single funnel.
+    # Drops sessions whose step 1 is something else (LOGIN_OK alone, SESSION_END, etc.) —
+    # usually telemetry gaps where the launch event didn't land but heartbeats did.
+    status.update(label="Anchoring journeys at GAME_LAUNCHED…")
+    all_users = events[["USER_ID", "SESSION_ID"]].drop_duplicates().shape[0]
+    launched = events[
+        (events["STEP_IDX"] == 1) & (events["EVENT_LABEL"] == "GAME_LAUNCHED")
+    ][["USER_ID", "SESSION_ID"]].drop_duplicates()
+    events = events.merge(launched, on=["USER_ID", "SESSION_ID"], how="inner")
+    kept_users = launched.shape[0]
+    dropped = all_users - kept_users
+    st.write(f"• Kept {kept_users:,} of {all_users:,} sessions "
+             f"({dropped:,} excluded, no GAME_LAUNCHED at step 1).")
 
-# Build (FROM_IDX, FROM_LABEL, TO_LABEL, N_USERS) link table
-events_sorted = events.sort_values(["USER_ID", "SESSION_ID", "STEP_IDX"]).copy()
-events_sorted["TO_LABEL"] = events_sorted.groupby(["USER_ID", "SESSION_ID"])["LABEL"].shift(-1)
-events_sorted["TO_LABEL"] = events_sorted["TO_LABEL"].fillna("<end>")
-links = (
-    events_sorted.groupby(["STEP_IDX", "LABEL", "TO_LABEL"]).size()
-    .reset_index(name="N_USERS")
-    .rename(columns={"STEP_IDX": "FROM_IDX", "LABEL": "FROM_LABEL"})
-)
+    # Pass labels through as-is. Each distinct heist gets its own node so we
+    # can see exactly which heist players move into after the tutorial. The
+    # `min_users` slider hides links carrying fewer than N players, which is
+    # how visual density is kept reasonable rather than by relabeling.
+    events["LABEL"] = events["EVENT_LABEL"]
 
-n_players = events["USER_ID"].nunique()
-drop_note = (f" · {dropped:,} sessions excluded (no GAME_LAUNCHED at step 1)"
-             if dropped else "")
-seg_note = "" if retention_segment == "All players" else f" · segment: {retention_segment}"
-title = (f"<b>Event Funnel · {cohort.strftime('%Y-%m')} cohort · n={n_players:,}{seg_note}{drop_note}</b>"
-         f"<br><sub>Every journey starts at GAME_LAUNCHED. "
-         f"Each column = N-th event in the player's first session. "
-         f"Steps 1–{max_step} shown; links < {min_users} players hidden.</sub>")
+    # Build (FROM_IDX, FROM_LABEL, TO_LABEL, N_USERS) link table — slowest
+    # client-side step on a cold cache (~5-10s for 100k rows).
+    status.update(label="Aggregating step-to-step transitions…")
+    events_sorted = events.sort_values(["USER_ID", "SESSION_ID", "STEP_IDX"]).copy()
+    events_sorted["TO_LABEL"] = events_sorted.groupby(["USER_ID", "SESSION_ID"])["LABEL"].shift(-1)
+    events_sorted["TO_LABEL"] = events_sorted["TO_LABEL"].fillna("<end>")
+    links = (
+        events_sorted.groupby(["STEP_IDX", "LABEL", "TO_LABEL"]).size()
+        .reset_index(name="N_USERS")
+        .rename(columns={"STEP_IDX": "FROM_IDX", "LABEL": "FROM_LABEL"})
+    )
+    st.write(f"• Built {len(links):,} unique transitions.")
 
-fig = build_sankey(links, min_users=min_users, max_step=max_step, title=title, height=900)
+    status.update(label="Building Sankey figure…")
+    n_players = events["USER_ID"].nunique()
+    drop_note = (f" · {dropped:,} sessions excluded (no GAME_LAUNCHED at step 1)"
+                 if dropped else "")
+    seg_note = "" if retention_segment == "All players" else f" · segment: {retention_segment}"
+    title = (f"<b>Event Funnel · {cohort.strftime('%Y-%m')} cohort · n={n_players:,}{seg_note}{drop_note}</b>"
+             f"<br><sub>Every journey starts at GAME_LAUNCHED. "
+             f"Each column = N-th event in the player's first session. "
+             f"Steps 1–{max_step} shown; links < {min_users} players hidden.</sub>")
+    fig = build_sankey(links, min_users=min_users, max_step=max_step, title=title, height=900)
+
+    status.update(label="Done.", state="complete", expanded=False)
 st.plotly_chart(fig, use_container_width=True)
 
 with st.expander("ℹ️ How to read the tutorial labels"):
