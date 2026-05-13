@@ -71,7 +71,7 @@ def fetch_events(cohort_month, platforms: tuple[str, ...], countries: tuple[str,
         where.append("COUNTRY_CODE IN (" + ",".join(["%s"] * len(countries)) + ")")
         params += list(countries)
     sql = f"""
-        SELECT USER_ID, SESSION_ID, STEP_IDX, EVENT_TYPE, EVENT_LABEL
+        SELECT USER_ID, SESSION_ID, STEP_IDX, EVENT_TYPE, EVENT_LABEL, EVENT_TS
         FROM PAYDAY3_PROD.DBT_ANALYTICS.FCT_NEW_PLAYER_FIRST_SESSION_EVENTS
         WHERE {' AND '.join(where)}
     """
@@ -206,6 +206,155 @@ def divergence_chart(links_r: pd.DataFrame, links_d: pd.DataFrame,
     return fig
 
 
+def _format_duration(seconds: float) -> str:
+    """Compact human-readable duration label for bar text and tooltips."""
+    if seconds < 90:
+        return f"{seconds:.0f}s"
+    if seconds < 90 * 60:
+        return f"{seconds/60:.1f}m"
+    return f"{seconds/3600:.1f}h"
+
+
+def compute_step_durations(events: pd.DataFrame) -> pd.DataFrame:
+    """One row per (user, session, step) with seconds-to-next-event.
+
+    Last event per session has no successor and is dropped. We also drop
+    any non-positive duration as a defensive guard — events_sorted is
+    deterministic via step_idx so this shouldn't fire, but it would
+    skew a median quickly if it did.
+
+    `event_ts` for SESSION_END is synthetic (derived from heartbeat
+    decay in the dbt model), so the duration at the *previous* real
+    event before SESSION_END includes idle time until the session
+    timed out, not active engagement. The chart caption flags this.
+    """
+    e = events.sort_values(["USER_ID", "SESSION_ID", "STEP_IDX"]).copy()
+    e["EVENT_TS"] = pd.to_datetime(e["EVENT_TS"])
+    e["NEXT_TS"] = e.groupby(["USER_ID", "SESSION_ID"])["EVENT_TS"].shift(-1)
+    e["DURATION_SEC"] = (e["NEXT_TS"] - e["EVENT_TS"]).dt.total_seconds()
+    e = e.dropna(subset=["DURATION_SEC"])
+    e = e[e["DURATION_SEC"] > 0]
+    return e[["USER_ID", "SESSION_ID", "STEP_IDX", "EVENT_LABEL", "DURATION_SEC"]].rename(
+        columns={"STEP_IDX": "FROM_IDX", "EVENT_LABEL": "FROM_LABEL"}
+    )
+
+
+def _aggregate_durations(d: pd.DataFrame, max_step: int) -> pd.DataFrame:
+    """Per (step, label): median + p25/p75 + count, filtered to <= max_step."""
+    d = d[d["FROM_IDX"] <= max_step]
+    return (d.groupby(["FROM_IDX", "FROM_LABEL"])["DURATION_SEC"]
+             .agg(median="median",
+                  p25=lambda x: x.quantile(0.25),
+                  p75=lambda x: x.quantile(0.75),
+                  n="count")
+             .reset_index())
+
+
+def duration_chart(durations: pd.DataFrame, *, max_step: int, min_users: int,
+                   top_n: int = 30) -> go.Figure | None:
+    """Single-segment median-time-at-step chart with IQR error bars."""
+    agg = _aggregate_durations(durations, max_step)
+    agg = agg[agg["n"] >= min_users]
+    if agg.empty:
+        return None
+    agg = (agg.sort_values(["FROM_IDX", "n"], ascending=[True, False])
+              .head(top_n)
+              .reset_index(drop=True))
+    agg["label"] = ("step " + agg["FROM_IDX"].astype(int).astype(str)
+                    + ": " + agg["FROM_LABEL"])
+
+    fig = go.Figure(go.Bar(
+        y=agg["label"], x=agg["median"], orientation="h",
+        marker_color="#3498db",
+        text=agg["median"].apply(_format_duration),
+        textposition="outside",
+        error_x=dict(type="data", symmetric=False,
+                     array=(agg["p75"] - agg["median"]),
+                     arrayminus=(agg["median"] - agg["p25"]),
+                     color="rgba(52,73,94,0.45)"),
+        customdata=list(zip(agg["n"], agg["p25"], agg["p75"])),
+        hovertemplate=("<b>%{y}</b>"
+                       "<br>Median: %{x:.1f}s"
+                       "<br>IQR: %{customdata[1]:.1f}–%{customdata[2]:.1f}s"
+                       "<br>n=%{customdata[0]:,}<extra></extra>"),
+    ))
+    fig.update_layout(
+        title=("<b>Time spent at each step</b><br>"
+               "<sub>Median seconds until the next event. Whiskers = IQR (p25–p75). "
+               f"Top {top_n} nodes by player count (≥ {min_users}) shown, in funnel order. "
+               "Duration before SESSION_END includes heartbeat-decay idle time, not active play.</sub>"),
+        height=max(420, 26 * len(agg) + 160),
+        margin=dict(l=10, r=10, t=110, b=10),
+        font=dict(size=13, family="Inter, system-ui, sans-serif"),
+        yaxis=dict(autorange="reversed"),  # step 1 at the top
+        xaxis=dict(title="seconds (log-ish-ranged)", type="log"),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+    return fig
+
+
+def duration_compare_chart(dur_r: pd.DataFrame, dur_d: pd.DataFrame, *,
+                           max_step: int, min_users: int,
+                           top_n: int = 30) -> go.Figure | None:
+    """Grouped-bar median-time chart for the Compare mode."""
+    agg_r = _aggregate_durations(dur_r, max_step).rename(
+        columns={"median": "median_R", "n": "n_R", "p25": "p25_R", "p75": "p75_R"})
+    agg_d = _aggregate_durations(dur_d, max_step).rename(
+        columns={"median": "median_D", "n": "n_D", "p25": "p25_D", "p75": "p75_D"})
+    if agg_r.empty and agg_d.empty:
+        return None
+    merged = agg_r.merge(agg_d, on=["FROM_IDX", "FROM_LABEL"], how="outer").fillna(0)
+    # Require min_users on at least one side so we don't promote noise.
+    merged = merged[(merged["n_R"] >= min_users) | (merged["n_D"] >= min_users)]
+    if merged.empty:
+        return None
+    # Order by step, then by combined volume so popular nodes within a
+    # step come first. Funnel reads top-down.
+    merged["n_combined"] = merged["n_R"] + merged["n_D"]
+    merged = (merged.sort_values(["FROM_IDX", "n_combined"], ascending=[True, False])
+                    .head(top_n)
+                    .reset_index(drop=True))
+    merged["label"] = ("step " + merged["FROM_IDX"].astype(int).astype(str)
+                       + ": " + merged["FROM_LABEL"])
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name="Returned D1+", y=merged["label"], x=merged["median_R"], orientation="h",
+        marker_color="#27ae60",
+        text=merged["median_R"].apply(lambda s: _format_duration(s) if s > 0 else ""),
+        textposition="outside",
+        customdata=merged["n_R"].astype(int),
+        hovertemplate=("<b>%{y}</b><br>Returned median: %{x:.1f}s"
+                       "<br>n=%{customdata:,}<extra></extra>"),
+    ))
+    fig.add_trace(go.Bar(
+        name="Dropped after D0", y=merged["label"], x=merged["median_D"], orientation="h",
+        marker_color="#c0392b",
+        text=merged["median_D"].apply(lambda s: _format_duration(s) if s > 0 else ""),
+        textposition="outside",
+        customdata=merged["n_D"].astype(int),
+        hovertemplate=("<b>%{y}</b><br>Dropped median: %{x:.1f}s"
+                       "<br>n=%{customdata:,}<extra></extra>"),
+    ))
+    fig.update_layout(
+        title=("<b>Time spent at each step — Returned vs Dropped</b><br>"
+               "<sub>Median seconds until the next event. Bars grouped by funnel position; "
+               f"top {top_n} (step, label) pairs by combined volume (≥ {min_users} on at least one side). "
+               "Longer Dropped bars suggest confusion / lost players; shorter Dropped bars suggest "
+               "rage-quit or impatience.</sub>"),
+        barmode="group",
+        height=max(520, 30 * len(merged) + 160),
+        margin=dict(l=10, r=10, t=110, b=10),
+        font=dict(size=13, family="Inter, system-ui, sans-serif"),
+        legend=dict(orientation="h", y=-0.04, x=0),
+        yaxis=dict(autorange="reversed"),
+        xaxis=dict(title="seconds (log-ranged)", type="log"),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+    return fig
+
+
 # All the heavy work below sits inside one st.status block so the user
 # sees what's happening instead of staring at a blank page. Each .update()
 # bumps the visible label; on a cold container the whole chain takes
@@ -260,6 +409,12 @@ with st.status("Loading event funnel…", expanded=True) as status:
         )
         diff_fig = divergence_chart(links_r, links_d,
                                     max_step=max_step, min_link_users=min_users)
+
+        status.update(label="Computing step durations…")
+        dur_r = compute_step_durations(events_r)
+        dur_d = compute_step_durations(events_d)
+        dur_fig = duration_compare_chart(dur_r, dur_d,
+                                         max_step=max_step, min_users=min_users)
         status.update(label="Done.", state="complete", expanded=False)
 
         col_r, col_d = st.columns(2)
@@ -274,6 +429,13 @@ with st.status("Loading event funnel…", expanded=True) as status:
                     "at the current `min_users` threshold — drop the slider.")
         else:
             st.plotly_chart(diff_fig, use_container_width=True)
+
+        st.divider()
+        if dur_fig is None:
+            st.info("Not enough volume to build the duration chart at the current "
+                    "`min_users` threshold — drop the slider.")
+        else:
+            st.plotly_chart(dur_fig, use_container_width=True)
 
         with st.expander("ℹ️ How to read the tutorial labels"):
             st.markdown(
@@ -357,8 +519,19 @@ The four tutorial heists differ in whether they have a real fail condition:
                  f"Steps 1–{max_step} shown; links < {min_users} players hidden.</sub>")
         fig = build_sankey(links, min_users=min_users, max_step=max_step, title=title, height=900)
 
+        status.update(label="Computing step durations…")
+        durations = compute_step_durations(events)
+        dur_fig = duration_chart(durations, max_step=max_step, min_users=min_users)
+
         status.update(label="Done.", state="complete", expanded=False)
         st.plotly_chart(fig, use_container_width=True)
+
+        st.divider()
+        if dur_fig is None:
+            st.info("Not enough volume to build the duration chart at the current "
+                    "`min_users` threshold — drop the slider.")
+        else:
+            st.plotly_chart(dur_fig, use_container_width=True)
 
         with st.expander("ℹ️ How to read the tutorial labels"):
             st.markdown(
