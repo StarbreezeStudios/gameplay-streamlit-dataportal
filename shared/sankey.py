@@ -155,16 +155,25 @@ def build_sankey(
     # from the funnel above it. (Root-level nodes are exempt — they are the
     # starting points and have no upstream by definition. `<end>` terminal
     # nodes are also kept because they only ever appear as targets.)
+    #
+    # Termination safety: an orphan that has no OUTBOUND links either —
+    # e.g. a dangling node where every connecting link was already pruned —
+    # would re-appear in `orphan_idxs` each pass without the `keep` filter
+    # removing any links, so the loop would spin forever. We watch the
+    # orphan set across iterations and break the moment it stops shrinking;
+    # the reindex pass below then drops these stuck-orphan nodes for good.
     if node_keys:
         min_step = min(i for (i, _) in node_keys)
+        prev_orphans: frozenset[int] | None = None
         while True:
             has_inbound = set(tgt)
-            orphan_idxs = {
+            orphan_idxs = frozenset(
                 i for i, (step, _) in enumerate(node_keys)
                 if step > min_step and i not in has_inbound
-            }
-            if not orphan_idxs:
+            )
+            if not orphan_idxs or orphan_idxs == prev_orphans:
                 break
+            prev_orphans = orphan_idxs
             keep = [k for k, s in enumerate(src) if s not in orphan_idxs]
             src = [src[k] for k in keep]
             tgt = [tgt[k] for k in keep]
