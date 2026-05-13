@@ -17,6 +17,7 @@ while _root != _root.parent and not (_root / "shared" / "__init__.py").exists():
 sys.path.insert(0, str(_root))
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from shared.sf import run_query
@@ -154,15 +155,50 @@ m = cohort_metrics(
 
 if not m.empty:
     row = m.iloc[0]
-    players = int(row["PLAYERS"]) if row["PLAYERS"] else 0
-    def pct(n):
-        return f"{(int(n)/players*100):.1f}%" if players else "—"
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Players in cohort", f"{players:,}")
-    c2.metric("Touched a tutorial",    f"{int(row['TOUCHED_TUTORIAL']):,}",   pct(row["TOUCHED_TUTORIAL"]))
-    c3.metric("Combat-tutorial success", f"{int(row['COMBAT_SUCCESS']):,}",   pct(row["COMBAT_SUCCESS"]))
-    c4.metric("Started a heist",       f"{int(row['REACHED_FIRST_HEIST']):,}", pct(row["REACHED_FIRST_HEIST"]))
-    c5.metric("Finished a heist",      f"{int(row['FINISHED_A_HEIST']):,}",   pct(row["FINISHED_A_HEIST"]))
+    players              = int(row["PLAYERS"])              if row["PLAYERS"]              else 0
+    touched_tutorial     = int(row["TOUCHED_TUTORIAL"])     if row["TOUCHED_TUTORIAL"]     else 0
+    combat_success       = int(row["COMBAT_SUCCESS"])       if row["COMBAT_SUCCESS"]       else 0
+    reached_first_heist  = int(row["REACHED_FIRST_HEIST"])  if row["REACHED_FIRST_HEIST"]  else 0
+    finished_a_heist     = int(row["FINISHED_A_HEIST"])     if row["FINISHED_A_HEIST"]     else 0
+
+    # Stages in logical gameplay order (not sorted by value). The "Started a
+    # heist" bar often exceeds "Touched a tutorial" because tutorial-skippers
+    # go straight to a heist — that inversion is the finding, not a bug, so
+    # we keep the gameplay sequence and call it out in the caption below.
+    stages = [
+        ("Players in cohort",        players,             "#7f8c8d"),
+        ("Touched a tutorial",       touched_tutorial,    "#3498db"),
+        ("Combat-tutorial success",  combat_success,      "#2980b9"),
+        ("Started a heist",          reached_first_heist, "#d35400"),
+        ("Finished a heist",         finished_a_heist,    "#27ae60"),
+    ]
+    fig = go.Figure(go.Funnel(
+        y=[s[0] for s in stages],
+        x=[s[1] for s in stages],
+        textposition="inside",
+        textinfo="value+percent initial",
+        marker={"color": [s[2] for s in stages]},
+        connector={"line": {"color": "#bdc3c7", "width": 1}},
+        hovertemplate=("<b>%{y}</b>"
+                       "<br>%{x:,} players"
+                       "<br>%{percentInitial} of cohort<extra></extra>"),
+    ))
+    fig.update_layout(
+        height=340,
+        margin=dict(l=10, r=10, t=10, b=10),
+        font=dict(size=13, family="Inter, system-ui, sans-serif"),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    if reached_first_heist > touched_tutorial:
+        st.caption(
+            f"ℹ️ {reached_first_heist - touched_tutorial:,} players "
+            f"({(reached_first_heist - touched_tutorial) / players * 100:.1f}% of cohort) "
+            "started a heist without first touching a tutorial — these are the "
+            "tutorial-skippers (typically returning Steam refunders or cross-progression veterans)."
+        )
 
 st.divider()
 st.markdown(
