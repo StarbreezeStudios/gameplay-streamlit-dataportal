@@ -17,7 +17,15 @@ def _display_label(label: str) -> str:
     `HEIST_START_`, …) and replace common outcomes with glyphs so labels are
     short enough to render without overlap. Hover still surfaces the full
     original label for clarity.
+
+    The `ui:` prefix is used by the Combined Flow page to mark
+    UI_STACK_UPDATED rows so they can't collide with gameplay event_labels
+    of the same name (e.g. a hypothetical `lobby` vs `lobby_ui`). Strip it
+    for display — the user already sees the muted UI color and the prefix
+    in hover.
     """
+    if label.startswith("ui:"):
+        return label[3:]
     fixed = {
         "GAME_LAUNCHED": "launch",
         "LOGIN_OK":      "login ✓",
@@ -57,6 +65,13 @@ def _display_label(label: str) -> str:
 
 def _default_color(label: str) -> str:
     """Sensible default coloring based on label prefix."""
+    # Combined Flow page: every UI_STACK_UPDATED node ships with a `ui:`
+    # prefix so it's distinguishable from a gameplay event of the same
+    # name. Render all of them in one muted slate — the user wants to see
+    # the SHAPE of UI clusters around gameplay events, not bucket-by-bucket
+    # color noise. Hover surfaces the specific bucket.
+    if label.startswith("ui:"):
+        return "#95a5a6"
     L = label.lower()
     if label == "<end>":                       return "#ecf0f1"
     if label == "SESSION_END":                 return "#7f8c8d"
