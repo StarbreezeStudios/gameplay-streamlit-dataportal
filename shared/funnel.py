@@ -224,6 +224,169 @@ def duration_chart(durations: pd.DataFrame, *, max_step: int, min_users: int,
     return fig
 
 
+def compute_dwell_breakdown(durations: pd.DataFrame, *,
+                            max_step: int,
+                            threshold_sec: int,
+                            quick_sec: int = 30) -> pd.DataFrame:
+    """Per (step, label) split of dwell into quick / medium / AFK-suspect bands.
+
+    `quick_sec` (default 30) — dwells shorter than this are "moved straight on"
+    `threshold_sec` — dwells longer than this are flagged AFK-suspect
+
+    Returns: FROM_IDX, FROM_LABEL, n, median, pct_quick, pct_med, pct_afk.
+    Percentages sum to 100 within each row.
+    """
+    d = durations[durations["FROM_IDX"] <= max_step]
+    if d.empty:
+        return pd.DataFrame(columns=[
+            "FROM_IDX", "FROM_LABEL", "n", "median",
+            "pct_quick", "pct_med", "pct_afk"
+        ])
+    return (d.groupby(["FROM_IDX", "FROM_LABEL"])["DURATION_SEC"]
+             .agg(
+                 n="count",
+                 median="median",
+                 pct_quick=lambda s: (s < quick_sec).mean() * 100,
+                 pct_med=lambda s: ((s >= quick_sec) & (s < threshold_sec)).mean() * 100,
+                 pct_afk=lambda s: (s >= threshold_sec).mean() * 100,
+             ).reset_index())
+
+
+def dwell_tail_chart(durations: pd.DataFrame, *,
+                     max_step: int, min_users: int,
+                     threshold_sec: int, quick_sec: int = 30,
+                     top_n: int = 30) -> go.Figure | None:
+    """Stacked horizontal bars: dwell-time distribution per (step, label).
+
+    Three colored bands per row — green `< quick_sec`, amber `quick_sec–threshold`,
+    red `> threshold` (AFK-suspect). Sorted by % AFK descending so the worst
+    offenders surface at the top. Answers "where do players linger long enough
+    that they're probably AFK or stuck?"
+    """
+    agg = compute_dwell_breakdown(durations,
+                                  max_step=max_step,
+                                  threshold_sec=threshold_sec,
+                                  quick_sec=quick_sec)
+    agg = agg[agg["n"] >= min_users]
+    if agg.empty:
+        return None
+    agg = (agg.sort_values("pct_afk", ascending=False)
+              .head(top_n).reset_index(drop=True))
+    agg["label"] = ("step " + agg["FROM_IDX"].astype(int).astype(str)
+                    + ": " + agg["FROM_LABEL"])
+
+    common_hover = (
+        "<b>%{y}</b>"
+        "<br>%{x:.1f}% in this band"
+        "<br>n=%{customdata[0]:,} dwells · median %{customdata[1]:.1f}s"
+        "<extra>%{fullData.name}</extra>"
+    )
+    cd = list(zip(agg["n"].astype(int), agg["median"].astype(float)))
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name=f"< {quick_sec}s (moved on)",
+        y=agg["label"], x=agg["pct_quick"], orientation="h",
+        marker_color="#27ae60",
+        customdata=cd, hovertemplate=common_hover,
+    ))
+    fig.add_trace(go.Bar(
+        name=f"{quick_sec}s–{threshold_sec}s (lingered)",
+        y=agg["label"], x=agg["pct_med"], orientation="h",
+        marker_color="#f39c12",
+        customdata=cd, hovertemplate=common_hover,
+    ))
+    fig.add_trace(go.Bar(
+        name=f"> {threshold_sec}s (AFK-suspect)",
+        y=agg["label"], x=agg["pct_afk"], orientation="h",
+        marker_color="#c0392b",
+        customdata=cd, hovertemplate=common_hover,
+    ))
+    fig.update_layout(
+        title=("<b>Dwell distribution at each step</b><br>"
+               "<sub>Each bar is a (step, label) node; segments split by how "
+               f"long players stayed before the next event. Sorted by % "
+               f"dwelling longer than {threshold_sec}s. "
+               f"Top {top_n} nodes by player count (≥ {min_users}). "
+               "Long red = candidate AFK / stuck pattern; long amber = "
+               "lingering but not extreme.</sub>"),
+        barmode="stack",
+        height=max(420, 26 * len(agg) + 160),
+        margin=dict(l=10, r=10, t=110, b=10),
+        font=dict(size=13, family="Inter, system-ui, sans-serif"),
+        legend=dict(orientation="h", y=-0.04, x=0),
+        yaxis=dict(autorange="reversed"),
+        xaxis=dict(title="% of dwells", range=[0, 100], ticksuffix="%"),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+    return fig
+
+
+def dwell_delta_chart(dur_r: pd.DataFrame, dur_d: pd.DataFrame, *,
+                      max_step: int, min_users: int,
+                      threshold_sec: int,
+                      top_n: int = 20) -> go.Figure | None:
+    """Compare-mode dwell-tail divergence.
+
+    For each (step, label), shows %_AFK_Returned vs %_AFK_Dropped side by side.
+    Ranked by `|pct_afk_D − pct_afk_R|` descending so the nodes where Dropped
+    players AFK significantly more (or less) than Returned float to the top.
+    """
+    agg_r = compute_dwell_breakdown(dur_r, max_step=max_step, threshold_sec=threshold_sec)
+    agg_d = compute_dwell_breakdown(dur_d, max_step=max_step, threshold_sec=threshold_sec)
+    merged = agg_r.merge(agg_d, on=["FROM_IDX", "FROM_LABEL"],
+                         how="outer", suffixes=("_R", "_D")).fillna(0)
+    merged = merged[(merged["n_R"] >= min_users) | (merged["n_D"] >= min_users)]
+    if merged.empty:
+        return None
+    merged["delta"]     = merged["pct_afk_D"] - merged["pct_afk_R"]
+    merged["abs_delta"] = merged["delta"].abs()
+    top = (merged.nlargest(top_n, "abs_delta")
+                 .sort_values("delta", ascending=True)
+                 .reset_index(drop=True))
+    top["label"] = ("step " + top["FROM_IDX"].astype(int).astype(str)
+                    + ": " + top["FROM_LABEL"])
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name="Returned D1+ (% AFK)",
+        y=top["label"], x=top["pct_afk_R"], orientation="h",
+        marker_color="#27ae60",
+        customdata=top["n_R"].astype(int),
+        hovertemplate=("<b>%{y}</b>"
+                       "<br>%{x:.1f}% of Returned dwelled past threshold"
+                       "<br>n=%{customdata:,}<extra></extra>"),
+    ))
+    fig.add_trace(go.Bar(
+        name="Dropped after D0 (% AFK)",
+        y=top["label"], x=top["pct_afk_D"], orientation="h",
+        marker_color="#c0392b",
+        customdata=top["n_D"].astype(int),
+        hovertemplate=("<b>%{y}</b>"
+                       "<br>%{x:.1f}% of Dropped dwelled past threshold"
+                       "<br>n=%{customdata:,}<extra></extra>"),
+    ))
+    fig.update_layout(
+        title=("<b>AFK-suspect dwell — Returned vs Dropped</b><br>"
+               f"<sub>% of each segment that sat for more than {threshold_sec}s "
+               "at this node before their next event. Sorted by the largest "
+               "Returned-vs-Dropped gap. Same value on both sides = both "
+               "segments linger equally here (likely real friction); large "
+               "gap = behavior-specific to one cohort.</sub>"),
+        barmode="group",
+        height=max(420, 30 * len(top) + 160),
+        margin=dict(l=10, r=10, t=110, b=10),
+        font=dict(size=13, family="Inter, system-ui, sans-serif"),
+        legend=dict(orientation="h", y=-0.06, x=0),
+        yaxis=dict(autorange="reversed"),
+        xaxis=dict(title="% of segment over threshold", range=[0, 100], ticksuffix="%"),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+    return fig
+
+
 def duration_compare_chart(dur_r: pd.DataFrame, dur_d: pd.DataFrame, *,
                            max_step: int, min_users: int,
                            top_n: int = 30) -> go.Figure | None:
