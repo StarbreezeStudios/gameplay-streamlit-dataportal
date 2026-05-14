@@ -33,10 +33,12 @@ from shared.funnel import (
     divergence_chart,
     duration_chart,
     duration_compare_chart,
-    dwell_delta_chart,
-    dwell_tail_chart,
     retention_keepsets,
 )
+# Note: the AFK-suspect dwell-tail chart lives on the UI Screen Flow page
+# (page 2), not here. Combined-Flow dwells mix gameplay events (near-zero
+# duration by construction) with UI screens, which muddies the AFK signal.
+# The UI fact's `time_spent_on_screen` is the cleanest per-screen measure.
 
 st.set_page_config(page_title="Combined Flow · PD3 Tutorial Path", page_icon="🎮", layout="wide")
 st.title("Combined Flow — gameplay + UI events")
@@ -84,16 +86,6 @@ retention_segment = st.sidebar.radio(
         "so widths line up across cohorts of different sizes."
     ),
     key="combined_retention",
-)
-afk_threshold = st.sidebar.slider(
-    "AFK-suspect threshold (seconds)",
-    min_value=30, max_value=600, value=180, step=30,
-    help=("A dwell longer than this at one (step, label) flags the player as "
-          "AFK-suspect or stuck for that transition. Drives the bottom Dwell "
-          "distribution chart. 180s (3min) is the default — short enough that "
-          "menu fiddling crosses it, long enough that an engaged combat-tutorial "
-          "run-through doesn't."),
-    key="combined_afk_threshold",
 )
 
 if cohort is None:
@@ -270,9 +262,6 @@ with st.status("Loading combined flow…", expanded=True) as status:
         dur_d = compute_step_durations(combined_d)
         dur_fig = duration_compare_chart(dur_r, dur_d,
                                          max_step=max_step, min_users=min_users)
-        dwell_fig = dwell_delta_chart(dur_r, dur_d,
-                                      max_step=max_step, min_users=min_users,
-                                      threshold_sec=afk_threshold)
 
         status.update(label="Done.", state="complete", expanded=False)
 
@@ -295,12 +284,6 @@ with st.status("Loading combined flow…", expanded=True) as status:
                     "current `min_users` threshold — drop the slider.")
         else:
             st.plotly_chart(dur_fig, use_container_width=True)
-
-        st.divider()
-        if dwell_fig is None:
-            st.info("Not enough volume to build the dwell-tail chart.")
-        else:
-            st.plotly_chart(dwell_fig, use_container_width=True)
 
     else:
         events = events_anchored
@@ -337,9 +320,6 @@ with st.status("Loading combined flow…", expanded=True) as status:
         status.update(label="Computing step durations…")
         durations = compute_step_durations(combined)
         dur_fig = duration_chart(durations, max_step=max_step, min_users=min_users)
-        dwell_fig = dwell_tail_chart(durations,
-                                     max_step=max_step, min_users=min_users,
-                                     threshold_sec=afk_threshold)
 
         status.update(label="Done.", state="complete", expanded=False)
         st.plotly_chart(fig, use_container_width=True)
@@ -350,12 +330,6 @@ with st.status("Loading combined flow…", expanded=True) as status:
                     "current `min_users` threshold — drop the slider.")
         else:
             st.plotly_chart(dur_fig, use_container_width=True)
-
-        st.divider()
-        if dwell_fig is None:
-            st.info("Not enough volume to build the dwell-tail chart.")
-        else:
-            st.plotly_chart(dwell_fig, use_container_width=True)
 
 with st.expander("How this view is built"):
     st.markdown(
